@@ -12,7 +12,7 @@ system.activate( "multitouch" )
 
 -- include Corona's "physics" library
 local physics = require("physics")
-physics.start()
+physics.start(); physics.pause()
 physics.setGravity(0, 0)
 
 --------------------------------------------
@@ -40,7 +40,25 @@ screenCenterY = display.contentHeight/2
 
 -- Called when the scene's view does not exist:
 function scene:createScene( event )
+
 	local group = self.view
+	local explosionSnd = audio.loadSound( "explosion.mp3" )
+	local beamSnd = audio.loadSound( "beam.mp3" )
+	local asteroidExplosionSnd = audio.loadSound( "asteroid_explosion.mp3" )
+
+	local sndtrack = audio.loadSound( "soundtrack.mp3" )
+
+	local explosionOptions = {
+		width = 64,
+		height = 64,
+		numFrames = 6,
+		sheetContentWidth=192, 
+		sheetContentHeight=128
+	}
+	local explosionSheet = graphics.newImageSheet("explosion.png", explosionOptions)
+	local sequenceData = {
+		{name = "explode", start=1, count=6, time=1000, loopCount=1}
+	}
 
 	local stick = StickLib.NewStick( 
         {
@@ -89,6 +107,7 @@ function scene:createScene( event )
 
 	-- Setting the warrior on screen
 	local warrior = display.newImage( "starship.png")
+	warrior.myName = "warrior"
 	warrior:setReferencePoint( display.TopLeftReferencePoint )
 	local warriorScaledHeight = warrior.height * warrior.yScale
 	local warriorScaledWidth = warrior.width * warrior.xScale
@@ -101,21 +120,21 @@ function scene:createScene( event )
 
 	-- Move our warrior by using the stick
 	local function moveWarrior(event)
+		if not warrior.isVisible then 
+			Runtime:removeEventListener('enterFrame', moveWarrior)
+			return
+		end
 		if warrior.x <= screenLeft then warrior.x = screenLeft end
 		if warrior.x >= xUpperBoundary then warrior.x = xUpperBoundary end
 		if warrior.y <= screenTop then warrior.y = screenTop end
 		if warrior.y >= yUpperBoundary then warrior.y = yUpperBoundary end
 
-			stick:move(warrior, 7.0, false)
+		local maxSpeed = 7.0
+		stick:move(warrior, 7.0, false)
 
 			--warrior:applyForce(4000, 4000, warrior.x, warrior.y)
 	end
 
-	local function onCollision(event)
-		--
-	end
-
-	Runtime:addEventListener( "collision", onCollision )
 	Runtime:addEventListener('enterFrame', moveWarrior)
 
 	asteroids = {}
@@ -125,7 +144,7 @@ function scene:createScene( event )
 
 		if math.random() < probability then
 			local asteroid = display.newImage( "asteroid".. (math.random(1, 4)) ..".png" )
-
+			asteroid.myName = "asteroid"
 			physics.addBody(asteroid)
 			asteroid:setReferencePoint( display.TopLeftReferencePoint )
 			asteroid.x = screenRight
@@ -145,38 +164,91 @@ function scene:createScene( event )
 
 	local function moveAsteroids(event)
 		for index, asteroid in pairs(asteroids) do
-			asteroid.x = asteroid.x - backgroundSpeed
-			if asteroid.x == -(asteroid.width * asteroid.xScale) then
+			if asteroid.isVisible then 
+				asteroid.x = asteroid.x - backgroundSpeed
+				if asteroid.x == -(asteroid.width * asteroid.xScale) then
+					asteroids[index] = nil
+				end
+			else
 				asteroids[index] = nil
 			end
+
 		end
 	end
 
 	Runtime:addEventListener('enterFrame', generateAsteroid)
 	Runtime:addEventListener('enterFrame', moveAsteroids)
 
-	local shots = {}
+	local beams = {}
 	local function onShoot(self, event)
-		local shot = display.newImage( "projectile2.png" )
-		shot.x = (warrior.x + warrior.width)
-		shot.y = (warrior.y + (warrior.height/2))
-		physics.addBody(shot, "static")
-		shots[#shots+1] = shot
+		if not warrior.isVisible then return end
+		local beam = display.newImage( "projectile2.png" )
+		beam.myName = "beam"
+		beam.x = (warrior.x + warrior.width)
+		beam.y = (warrior.y + (warrior.height/2))
+		physics.addBody(beam, "static")
+		beams[#beams+1] = beam
 
-		group:insert(shot)
+		group:insert(beam)
+		audio.play(beamSnd)
 	end
 
 	stick.Shoot:addEventListener("touch", onShoot)
 
 
-	local function moveShots(event)
-		for index, shot in pairs(shots) do
-			shot.x = shot.x + 5
+	local function moveBeams(event)
+		for index, beam in pairs(beams) do
+			beam.x = beam.x + 5
 		end
 	end
 
-	Runtime:addEventListener('enterFrame', moveShots)
+	Runtime:addEventListener('enterFrame', moveBeams)
 
+
+
+	local function onCollision(event)
+		local asteroid
+		local other
+		if event.object1.myName == "asteroid" then
+			asteroid = event.object1
+			other  = event.object2
+		elseif event.object2.myName == "asteroid" then
+			asteroid = event.object2
+			other = event.object1
+		end
+
+		if asteroid then
+			if other.myName == "beam" then
+				audio.play(asteroidExplosionSnd)
+				asteroid:removeSelf()
+			elseif other.myName == "warrior" then
+				local explosionSprite = display.newSprite(explosionSheet, sequenceData)
+				explosionSprite.x = (other.x + other.width/2)
+				explosionSprite.y = (other.y + other.height/2)
+				other:removeSelf()
+				asteroid:removeSelf()
+				audio.play(explosionSnd)
+				explosionSprite:setSequence( "explosion" )
+				explosionSprite:play()
+
+				local function exitScene()
+					Runtime:removeEventListener('enterFrame', moveWarrior)
+					Runtime:removeEventListener('enterFrame', generateAsteroid)
+					Runtime:removeEventListener('enterFrame', moveAsteroids)
+					Runtime:removeEventListener('enterFrame', updateBackgroud)
+					stick.Shoot:removeEventListener("touch", onShoot)
+					Runtime:removeEventListener('enterFrame', moveBeams)
+
+					storyboard.gotoScene("level2")
+				end
+				-- storyboard.gotoScene( "level1" )
+				-- timer.performWithDelay( 1500, exitScene, 1 )
+			end
+		end
+
+	end
+
+	Runtime:addEventListener( "collision", onCollision )
 
 
 	-- Insert elements into screen
@@ -184,6 +256,8 @@ function scene:createScene( event )
 	group:insert( background2 )
 	group:insert( background3 )
 	group:insert( warrior )
+
+	audio.play(sndtrack)
 
 end
 

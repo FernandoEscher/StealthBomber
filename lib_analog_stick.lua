@@ -109,8 +109,11 @@ function NewStick( Props )
         ---------------------------------------------
         function Group:move(Obj, maxSpeed, rotate)
                 if rotate == true then Obj.rotation = self.angle end
+                oldY = Obj.y
                 Obj.x = Obj.x + Cos( Rad(self.angle-90) ) * (maxSpeed * self.percent) 
                 Obj.y = Obj.y + Sin( Rad(self.angle-90) ) * (maxSpeed * self.percent) 
+
+                Obj.yScale = (maxSpeed - math.abs(maxSpeed * self.percent)) / (maxSpeed * 4) + 0.75
         end
         
         ---------------------------------------------
